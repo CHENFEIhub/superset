@@ -33,7 +33,7 @@ from flask_appbuilder.models.filters import BaseFilter, Filters
 from flask_appbuilder.models.sqla.filters import FilterStartsWith
 from flask_appbuilder.models.sqla.interface import SQLAInterface
 from flask_babel import lazy_gettext as _
-from marshmallow import fields, Schema
+from marshmallow import fields, Schema, validate
 from sqlalchemy import and_, distinct, func
 from sqlalchemy.orm.query import Query
 
@@ -50,6 +50,90 @@ from superset.utils.core import get_user_id, time_function
 from superset.views.error_handling import handle_api_exception
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_FILTER_OPERATORS = frozenset(
+    {
+        "sw",
+        "nsw",
+        "ew",
+        "new",
+        "ct",
+        "nct",
+        "eq",
+        "neq",
+        "gt",
+        "lt",
+        "in",
+        "not_in",
+        "rel_o_m",
+        "nrel_o_m",
+        "rel_m_m",
+        "eqf",
+        "inf",
+    }
+)
+MAX_FILTER_VALUE_LENGTH = 1000
+MAX_FILTER_LIST_SIZE = 100
+
+
+class ApiFilterSchema(Schema):
+    col = fields.String(
+        required=True,
+        validate=validate.Length(min=1, max=200),
+    )
+    opr = fields.String(
+        required=True,
+        validate=validate.OneOf(ALLOWED_FILTER_OPERATORS),
+    )
+    value = fields.Raw(required=True)
+
+
+def _validate_filter_value(value: Any) -> None:
+    """Validate filter value type and length constraints."""
+    if isinstance(value, str):
+        if len(value) > MAX_FILTER_VALUE_LENGTH:
+            raise InvalidPayloadFormatError(
+                message="Filter value exceeds maximum length"
+                f" of {MAX_FILTER_VALUE_LENGTH}"
+            )
+    elif isinstance(value, list):
+        if len(value) > MAX_FILTER_LIST_SIZE:
+            raise InvalidPayloadFormatError(
+                message="Filter list exceeds maximum size"
+                f" of {MAX_FILTER_LIST_SIZE}"
+            )
+        for item in value:
+            if isinstance(item, str) and len(item) > MAX_FILTER_VALUE_LENGTH:
+                raise InvalidPayloadFormatError(
+                    message="Filter list item exceeds"
+                    f" maximum length of {MAX_FILTER_VALUE_LENGTH}"
+                )
+            if not isinstance(item, (str, int, float, bool)):
+                raise InvalidPayloadFormatError(
+                    message="Filter list items must be"
+                    " strings, numbers, or booleans"
+                )
+    elif not isinstance(value, (int, float, bool)):
+        raise InvalidPayloadFormatError(
+            message="Filter value must be a string,"
+            " number, boolean, or list"
+        )
+
+
+def validate_api_filters(
+    filters: list[dict[str, Any]],
+) -> None:
+    """Validate filter parameters against allowlisted operators."""
+    schema = ApiFilterSchema()
+    for flt in filters:
+        errors = schema.validate(flt)
+        if errors:
+            raise InvalidPayloadFormatError(
+                message=f"Invalid filter parameters: {errors}"
+            )
+        _validate_filter_value(flt.get("value"))
+
+
 get_related_schema = {
     "type": "object",
     "properties": {
@@ -389,6 +473,11 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         if base_filters := self.base_related_field_filters.get(column_name):
             filters.add_filter_list(base_filters)
         if value and filter_field:
+            if isinstance(value, str) and len(value) > MAX_FILTER_VALUE_LENGTH:
+                raise InvalidPayloadFormatError(
+                    message="Filter value exceeds"
+                    f" maximum length of {MAX_FILTER_VALUE_LENGTH}"
+                )
             filters.add_filter(
                 filter_field.field_name, filter_field.filter_class, value
             )
@@ -401,6 +490,11 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         filters = self.datamodel.get_filters(search_columns)
         filters.add_filter_list(self.base_filters)
         if value and filter_field:
+            if isinstance(value, str) and len(value) > MAX_FILTER_VALUE_LENGTH:
+                raise InvalidPayloadFormatError(
+                    message="Filter value exceeds"
+                    f" maximum length of {MAX_FILTER_VALUE_LENGTH}"
+                )
             filters.add_filter(
                 filter_field.field_name, filter_field.filter_class, value
             )
@@ -490,6 +584,13 @@ class BaseSupersetModelRestApi(BaseSupersetApiMixin, ModelRestApi):
         """
         Add statsd metrics to builtin FAB GET list endpoint
         """
+        args = kwargs.get("rison", {})
+        filters = args.get("filters", [])
+        if filters:
+            try:
+                validate_api_filters(filters)
+            except InvalidPayloadFormatError as ex:
+                return self.response_400(message=str(ex))
         duration, response = time_function(super().get_list_headless, **kwargs)
         self.send_stats_metrics(response, self.get_list.__name__, duration)
         return response
