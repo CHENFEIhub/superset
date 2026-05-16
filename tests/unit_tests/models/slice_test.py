@@ -19,6 +19,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
+from markupsafe import Markup
 from parameterized import parameterized
 
 from superset.models.slice import id_or_uuid_filter, Slice
@@ -123,3 +124,32 @@ class TestSlice:
 
         result = slc.datasource_url()
         assert result is None
+
+    def test_icons_escapes_datasource_name(self):
+        """icons property must escape the datasource name to prevent XSS."""
+        slc = Slice()
+        slc.id = 1
+
+        mock_datasource = MagicMock()
+        mock_datasource.__str__ = lambda self: '<script>alert("xss")</script>'
+        mock_datasource.url = "/tablemodelview/edit/1"
+        slc.table = mock_datasource
+
+        result = slc.icons
+        assert isinstance(result, Markup)
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+    def test_icons_safe_datasource_name(self):
+        """icons property renders safe datasource names correctly."""
+        slc = Slice()
+        slc.id = 1
+
+        mock_datasource = MagicMock()
+        mock_datasource.__str__ = lambda self: "my_table"
+        mock_datasource.url = "/tablemodelview/edit/1"
+        slc.table = mock_datasource
+
+        result = slc.icons
+        assert isinstance(result, Markup)
+        assert "my_table" in result
