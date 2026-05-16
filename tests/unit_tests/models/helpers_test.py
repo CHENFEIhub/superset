@@ -2650,3 +2650,48 @@ def test_filter_by_verbose_name_resolves_to_column(
     assert "WHERE" in sql, f"Expected WHERE clause, got SQL: {sql}"
     assert "country_code" in sql, f"Expected filter on 'country_code', got SQL: {sql}"
     assert "'US'" in sql, f"Expected filter value 'US', got SQL: {sql}"
+
+
+def test_modified_escapes_changed_on_humanized() -> None:
+    """modified() must escape its content to prevent stored XSS."""
+    from datetime import datetime
+    from unittest.mock import PropertyMock
+
+    from markupsafe import Markup
+
+    from superset.models.helpers import AuditMixinNullable
+
+    class FakeModel(AuditMixinNullable):
+        changed_on = datetime(2024, 1, 1)
+
+    obj = FakeModel()
+
+    # Patch changed_on_humanized to return a malicious string
+    with patch.object(
+        type(obj),
+        "changed_on_humanized",
+        new_callable=PropertyMock,
+        return_value='<script>alert("xss")</script>',
+    ):
+        result = obj.modified()
+        assert isinstance(result, Markup)
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+
+def test_changed_on_escapes_value() -> None:
+    """changed_on_() must escape its content to prevent stored XSS."""
+    from datetime import datetime
+
+    from markupsafe import Markup
+
+    from superset.models.helpers import AuditMixinNullable
+
+    class FakeModel(AuditMixinNullable):
+        changed_on = datetime(2024, 1, 1)
+
+    obj = FakeModel()
+    result = obj.changed_on_()
+    assert isinstance(result, Markup)
+    # Normal datetime should render without script tags
+    assert "<script>" not in result
