@@ -14,15 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# pylint: disable=import-outside-toplevel, unused-argument
+
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from superset.utils.cache import (
-    _compute_cache_hmac,
-    CACHE_HMAC_KEY,
-    verify_cache_value,
-)
 
 
 @pytest.fixture
@@ -35,6 +31,8 @@ def mock_app():
 
 def test_compute_cache_hmac_deterministic():
     """HMAC computation is deterministic for the same inputs."""
+    from superset.utils.cache import _compute_cache_hmac
+
     value = {"foo": "bar", "num": 42}
     h1 = _compute_cache_hmac("key1", value, "secret")
     h2 = _compute_cache_hmac("key1", value, "secret")
@@ -43,6 +41,8 @@ def test_compute_cache_hmac_deterministic():
 
 def test_compute_cache_hmac_changes_with_key():
     """Different cache keys produce different HMACs."""
+    from superset.utils.cache import _compute_cache_hmac
+
     value = {"foo": "bar"}
     h1 = _compute_cache_hmac("key1", value, "secret")
     h2 = _compute_cache_hmac("key2", value, "secret")
@@ -51,6 +51,8 @@ def test_compute_cache_hmac_changes_with_key():
 
 def test_compute_cache_hmac_changes_with_value():
     """Different values produce different HMACs."""
+    from superset.utils.cache import _compute_cache_hmac
+
     h1 = _compute_cache_hmac("key", {"a": 1}, "secret")
     h2 = _compute_cache_hmac("key", {"a": 2}, "secret")
     assert h1 != h2
@@ -58,6 +60,8 @@ def test_compute_cache_hmac_changes_with_value():
 
 def test_compute_cache_hmac_changes_with_secret():
     """Different secrets produce different HMACs."""
+    from superset.utils.cache import _compute_cache_hmac
+
     value = {"foo": "bar"}
     h1 = _compute_cache_hmac("key", value, "secret1")
     h2 = _compute_cache_hmac("key", value, "secret2")
@@ -66,6 +70,8 @@ def test_compute_cache_hmac_changes_with_secret():
 
 def test_compute_cache_hmac_ignores_hmac_field():
     """The HMAC field itself is excluded from computation."""
+    from superset.utils.cache import _compute_cache_hmac, CACHE_HMAC_KEY
+
     value = {"foo": "bar"}
     value_with_hmac = {"foo": "bar", CACHE_HMAC_KEY: "stale"}
     h1 = _compute_cache_hmac("key", value, "secret")
@@ -75,6 +81,8 @@ def test_compute_cache_hmac_ignores_hmac_field():
 
 def test_compute_cache_hmac_handles_non_serializable(mock_app):
     """Non-JSON-serializable values are reduced to their type name."""
+    from superset.utils.cache import _compute_cache_hmac
+
     value = {"data": object()}
     hmac_val = _compute_cache_hmac("key", value, "secret")
     assert isinstance(hmac_val, str)
@@ -83,6 +91,12 @@ def test_compute_cache_hmac_handles_non_serializable(mock_app):
 
 def test_verify_cache_value_valid(mock_app):
     """A correctly signed value passes verification."""
+    from superset.utils.cache import (
+        _compute_cache_hmac,
+        CACHE_HMAC_KEY,
+        verify_cache_value,
+    )
+
     cache_key = "test-key"
     value = {"data": "hello", "dttm": "2024-01-01T00:00:00"}
     value[CACHE_HMAC_KEY] = _compute_cache_hmac(
@@ -97,6 +111,12 @@ def test_verify_cache_value_valid(mock_app):
 
 def test_verify_cache_value_tampered(mock_app):
     """A value with modified payload fails verification."""
+    from superset.utils.cache import (
+        _compute_cache_hmac,
+        CACHE_HMAC_KEY,
+        verify_cache_value,
+    )
+
     cache_key = "test-key"
     value = {"data": "hello", "dttm": "2024-01-01T00:00:00"}
     value[CACHE_HMAC_KEY] = _compute_cache_hmac(
@@ -111,6 +131,12 @@ def test_verify_cache_value_tampered(mock_app):
 
 def test_verify_cache_value_wrong_key(mock_app):
     """A value verified against a different cache key fails."""
+    from superset.utils.cache import (
+        _compute_cache_hmac,
+        CACHE_HMAC_KEY,
+        verify_cache_value,
+    )
+
     value = {"data": "hello", "dttm": "2024-01-01T00:00:00"}
     value[CACHE_HMAC_KEY] = _compute_cache_hmac(
         "original-key", value, "test-secret-key-1234"
@@ -122,6 +148,8 @@ def test_verify_cache_value_wrong_key(mock_app):
 
 def test_verify_cache_value_legacy_no_hmac(mock_app):
     """Legacy cache entries without HMAC are allowed with a warning."""
+    from superset.utils.cache import verify_cache_value
+
     value = {"data": "old-entry", "dttm": "2023-01-01T00:00:00"}
 
     result = verify_cache_value("some-key", value)
@@ -131,9 +159,13 @@ def test_verify_cache_value_legacy_no_hmac(mock_app):
 
 def test_verify_cache_value_none(mock_app):
     """None input returns None."""
+    from superset.utils.cache import verify_cache_value
+
     assert verify_cache_value("key", None) is None
 
 
 def test_verify_cache_value_non_dict(mock_app):
     """Non-dict input returns None."""
-    assert verify_cache_value("key", "not-a-dict") is None  # type: ignore[arg-type]
+    from superset.utils.cache import verify_cache_value
+
+    assert verify_cache_value("key", "not-a-dict") is None

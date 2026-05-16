@@ -91,8 +91,7 @@ def _is_safe_json_value(obj: Any) -> bool:
         return True
     if isinstance(obj, dict):
         return all(
-            _is_safe_json_value(k) and _is_safe_json_value(v)
-            for k, v in obj.items()
+            _is_safe_json_value(k) and _is_safe_json_value(v) for k, v in obj.items()
         )
     if isinstance(obj, list):
         return all(_is_safe_json_value(item) for item in obj)

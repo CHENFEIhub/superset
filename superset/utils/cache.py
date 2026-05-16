@@ -47,9 +47,7 @@ def _hmac_safe_default(obj: Any) -> str:
     return f"<{type(obj).__qualname__}>"
 
 
-def _compute_cache_hmac(
-    cache_key: str, value: dict[str, Any], secret_key: str
-) -> str:
+def _compute_cache_hmac(cache_key: str, value: dict[str, Any], secret_key: str) -> str:
     """Compute HMAC-SHA256 signature for cache value integrity verification."""
     filtered = {k: v for k, v in value.items() if k != CACHE_HMAC_KEY}
     message = json_dumps(
@@ -86,9 +84,7 @@ def verify_cache_value(
 
     if stored_hmac is None:
         # Legacy cache entries written before HMAC signing was added
-        logger.warning(
-            "Cache entry for key %s has no HMAC signature", cache_key
-        )
+        logger.warning("Cache entry for key %s has no HMAC signature", cache_key)
         return cache_value
 
     if not secret_key:
@@ -147,9 +143,7 @@ def set_and_log_cache(
         # Sign cache value with HMAC for integrity verification (CWE-502)
         secret_key = app.config.get("SECRET_KEY", "")
         if secret_key:
-            value[CACHE_HMAC_KEY] = _compute_cache_hmac(
-                cache_key, value, secret_key
-            )
+            value[CACHE_HMAC_KEY] = _compute_cache_hmac(cache_key, value, secret_key)
         cache_instance.set(cache_key, value, timeout=timeout)
         stats_logger = app.config["STATS_LOGGER"]
         stats_logger.incr("set_cache_key")
