@@ -32,9 +32,11 @@ from superset.exceptions import OAuth2Error, SupersetErrorException
 from superset.models.core import Database
 from superset.sql.parse import SQLStatement, Table
 from superset.sql_lab import (
+    _validate_sql_identifier,
     execute_query,
     execute_sql_statements,
     get_sql_results,
+    SqlLabSecurityException,
 )
 from superset.utils.rls import apply_rls, get_predicates_for_table
 from tests.conftest import with_config
@@ -363,3 +365,37 @@ def test_get_predicates_for_table_excludes_self(mocker: MockerFixture) -> None:
     filter_call = db.session.query().filter.call_args
     and_clause = filter_call.args[0]
     assert len(and_clause.clauses) == 5
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "my_table",
+        "schema1",
+        "my_table_2024_01_01",
+        "CamelCase",
+        "table$aux",
+        "public.my_table",
+    ],
+)
+def test_validate_sql_identifier_accepts_valid_names(name: str) -> None:
+    """Valid SQL identifiers must pass validation."""
+    assert _validate_sql_identifier(name, "table name") == name
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "'; DROP TABLE users--",
+        "table; DELETE FROM foo",
+        'name" OR 1=1',
+        "schema\x00inject",
+        "table name with spaces",
+        "",
+        "table/*comment*/",
+    ],
+)
+def test_validate_sql_identifier_rejects_malicious_names(name: str) -> None:
+    """Strings containing injection patterns must be rejected."""
+    with pytest.raises(SqlLabSecurityException):
+        _validate_sql_identifier(name, "table name")

@@ -17,6 +17,7 @@
 # pylint: disable=consider-using-transaction
 import dataclasses
 import logging
+import re
 import sys
 import uuid
 from contextlib import closing
@@ -86,6 +87,23 @@ class SqlLabSecurityException(SqlLabException):
 
 class SqlLabQueryStoppedException(SqlLabException):
     pass
+
+
+_VALID_SQL_IDENTIFIER_RE = re.compile(r"^[\w.$]+$", re.UNICODE)
+
+
+def _validate_sql_identifier(name: str, field_label: str) -> str:
+    """Validate that *name* looks like a legitimate SQL identifier.
+
+    Raises :class:`SqlLabSecurityException` when the value contains
+    characters that could be used for SQL injection (semicolons, quotes,
+    comment markers, etc.).
+    """
+    if not name or not _VALID_SQL_IDENTIFIER_RE.match(name):
+        raise SqlLabSecurityException(
+            f"Invalid {field_label}: {name!r} contains disallowed characters"
+        )
+    return name
 
 
 def handle_query_error(
@@ -210,6 +228,10 @@ def apply_ctas(query: Query, parsed_statement: S) -> S:
         start_dttm = datetime.fromtimestamp(query.start_time)
         prefix = f"tmp_{query.user_id}_table"
         query.tmp_table_name = start_dttm.strftime(f"{prefix}_%Y_%m_%d_%H_%M_%S")
+
+    _validate_sql_identifier(query.tmp_table_name, "table name")
+    if query.tmp_schema_name:
+        _validate_sql_identifier(query.tmp_schema_name, "schema name")
 
     catalog = (
         query.catalog
@@ -532,6 +554,9 @@ def execute_sql_statements(  # noqa: C901
     query.set_extra_json_key("progress", None)
     query.set_extra_json_key("columns", result_set.columns)
     if query.select_as_cta:
+        _validate_sql_identifier(query.tmp_table_name, "table name")
+        if query.tmp_schema_name:
+            _validate_sql_identifier(query.tmp_schema_name, "schema name")
         query.select_sql = database.select_star(
             Table(query.tmp_table_name, query.tmp_schema_name),
             limit=query.limit,
