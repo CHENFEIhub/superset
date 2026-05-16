@@ -64,7 +64,7 @@ from superset.security import SupersetSecurityManager
 from superset.semantic_layers.labels import database_connections_menu_label
 from superset.sql.parse import SQLGLOT_DIALECTS
 from superset.superset_typing import FlaskResponse
-from superset.utils.core import is_test, pessimistic_connection_handling
+from superset.utils.core import pessimistic_connection_handling
 from superset.utils.decorators import transaction
 from superset.utils.log import DBEventLogger, get_event_logger_from_cfg_value
 
@@ -651,16 +651,12 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             logger.warning(bottom_banner)
 
         if self.config["SECRET_KEY"] == CHANGE_ME_SECRET_KEY:
-            if (
-                self.superset_app.debug
-                or self.superset_app.config["TESTING"]
-                or is_test()
-            ):
-                logger.warning("Debug mode identified with default secret key")
-                log_default_secret_key_warning()
-                return
             log_default_secret_key_warning()
-            logger.error("Refusing to start due to insecure SECRET_KEY")
+            logger.error(
+                "Refusing to start due to insecure SECRET_KEY. "
+                "Please set a unique SECRET_KEY in your superset_config.py or "
+                "via the SUPERSET_SECRET_KEY environment variable."
+            )
             sys.exit(1)
 
     def configure_session(self) -> None:
