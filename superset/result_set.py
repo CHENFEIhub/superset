@@ -82,8 +82,32 @@ def stringify_values(array: NDArray[Any]) -> NDArray[Any]:
     return result
 
 
+_SAFE_JSON_TYPES = (dict, list, str, int, float, bool, type(None))
+
+
+def _is_safe_json_value(obj: Any) -> bool:
+    """Check that *obj* contains only types produced by JSON deserialization."""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return True
+    if isinstance(obj, dict):
+        return all(
+            _is_safe_json_value(k) and _is_safe_json_value(v)
+            for k, v in obj.items()
+        )
+    if isinstance(obj, list):
+        return all(_is_safe_json_value(item) for item in obj)
+    return False
+
+
 def destringify(obj: str) -> Any:
-    return json.loads(obj)
+    """Deserialize a JSON string, validating that the result contains only
+    safe JSON-native types (CWE-502 mitigation)."""
+    result = json.loads(obj)
+    if not _is_safe_json_value(result):
+        raise TypeError(
+            f"Deserialized value contains disallowed type: {type(result).__name__}"
+        )
+    return result
 
 
 def convert_to_string(value: Any) -> str:
