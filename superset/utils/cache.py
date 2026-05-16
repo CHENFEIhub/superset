@@ -16,6 +16,8 @@
 # under the License.
 from __future__ import annotations
 
+import hashlib
+import hmac as hmac_module
 import inspect
 import logging
 from datetime import datetime, timedelta
@@ -33,9 +35,72 @@ from superset.extensions import cache_manager
 from superset.models.cache import CacheKey
 from superset.utils.cache_manager import configurable_hash_method
 from superset.utils.hashing import hash_from_dict
-from superset.utils.json import json_int_dttm_ser
+from superset.utils.json import dumps as json_dumps, json_int_dttm_ser
 
 logger = logging.getLogger(__name__)
+
+CACHE_HMAC_KEY = "__cache_hmac"
+
+
+def _hmac_safe_default(obj: Any) -> str:
+    """Fallback serializer for HMAC computation over non-JSON-native types."""
+    return f"<{type(obj).__qualname__}>"
+
+
+def _compute_cache_hmac(cache_key: str, value: dict[str, Any], secret_key: str) -> str:
+    """Compute HMAC-SHA256 signature for cache value integrity verification."""
+    filtered = {k: v for k, v in value.items() if k != CACHE_HMAC_KEY}
+    message = json_dumps(
+        {"key": cache_key, "value": filtered},
+        sort_keys=True,
+        default=_hmac_safe_default,
+    ).encode("utf-8")
+    return hmac_module.new(
+        secret_key.encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_cache_value(
+    cache_key: str, cache_value: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """
+    Verify the HMAC integrity of a cached value (CWE-502 mitigation).
+
+    Returns the value with the HMAC field removed if verification succeeds,
+    or None if verification fails.  Unsigned legacy cache entries are accepted
+    with a warning for backwards compatibility.
+    """
+    if cache_value is None:
+        return None
+
+    if not isinstance(cache_value, dict):
+        logger.warning("Cache value is not a dict, rejecting")
+        return None
+
+    stored_hmac = cache_value.get(CACHE_HMAC_KEY)
+    secret_key = app.config.get("SECRET_KEY", "")
+
+    if stored_hmac is None:
+        # Legacy cache entries written before HMAC signing was added
+        logger.warning("Cache entry for key %s has no HMAC signature", cache_key)
+        return cache_value
+
+    if not secret_key:
+        payload = {k: v for k, v in cache_value.items() if k != CACHE_HMAC_KEY}
+        return payload
+
+    expected_hmac = _compute_cache_hmac(cache_key, cache_value, secret_key)
+
+    if not hmac_module.compare_digest(stored_hmac, expected_hmac):
+        logger.error(
+            "Cache HMAC verification failed for key %s — possible tampering",
+            cache_key,
+        )
+        return None
+
+    return {k: v for k, v in cache_value.items() if k != CACHE_HMAC_KEY}
 
 
 def generate_cache_key(values_dict: dict[str, Any], key_prefix: str = "") -> str:
@@ -75,6 +140,10 @@ def set_and_log_cache(
     try:
         dttm = datetime.utcnow().isoformat().split(".")[0]
         value = {**cache_value, "dttm": dttm}
+        # Sign cache value with HMAC for integrity verification (CWE-502)
+        secret_key = app.config.get("SECRET_KEY", "")
+        if secret_key:
+            value[CACHE_HMAC_KEY] = _compute_cache_hmac(cache_key, value, secret_key)
         cache_instance.set(cache_key, value, timeout=timeout)
         stats_logger = app.config["STATS_LOGGER"]
         stats_logger.incr("set_cache_key")
