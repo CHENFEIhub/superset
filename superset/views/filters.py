@@ -24,6 +24,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Query
 
 from superset import security_manager
+from superset.views.base_api import MAX_FILTER_VALUE_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,10 @@ class FilterRelatedOwners(BaseFilter):  # pylint: disable=too-few-public-methods
 
     def apply(self, query: Query, value: Optional[Any]) -> Query:
         user_model = security_manager.user_model
-        like_value = "%" + cast(str, value) + "%"
+        str_value = cast(str, value)
+        if len(str_value) > MAX_FILTER_VALUE_LENGTH:
+            return query
+        like_value = "%" + str_value + "%"
         return query.filter(
             or_(
                 # could be made to handle spaces between names more gracefully
@@ -119,5 +123,8 @@ class FilterRelatedTables(BaseFilter):  # pylint: disable=too-few-public-methods
     def apply(self, query: Query, value: Optional[Any]) -> Query:
         from superset.connectors.sqla.models import SqlaTable
 
-        like_value = "%" + cast(str, value) + "%"
+        str_value = cast(str, value)
+        if len(str_value) > MAX_FILTER_VALUE_LENGTH:
+            return query
+        like_value = "%" + str_value + "%"
         return query.filter(SqlaTable.table_name.ilike(like_value))
