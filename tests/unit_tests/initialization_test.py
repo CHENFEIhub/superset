@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy.exc import OperationalError
 
 from superset.app import AppRootMiddleware, create_app, SupersetApp
+from superset.constants import CHANGE_ME_SECRET_KEY
 from superset.initialization import SupersetAppInitializer
 
 
@@ -188,6 +189,59 @@ class TestSupersetAppInitializer:
             app_initializer._db_uri_cache
             == "postgresql://realuser:realpass@realhost:5432/realdb"
         )
+
+
+class TestCheckSecretKey:
+    @patch("superset.initialization.sys.exit")
+    @patch("superset.initialization.logger")
+    def test_default_secret_key_exits_in_production(self, mock_logger, mock_exit):
+        """App must refuse to start with the default SECRET_KEY."""
+        mock_app = MagicMock()
+        mock_app.config = {"SECRET_KEY": CHANGE_ME_SECRET_KEY}
+        mock_app.debug = False
+        app_initializer = SupersetAppInitializer(mock_app)
+
+        app_initializer.check_secret_key()
+
+        mock_exit.assert_called_once_with(1)
+
+    @patch("superset.initialization.sys.exit")
+    @patch("superset.initialization.logger")
+    def test_default_secret_key_exits_in_debug_mode(self, mock_logger, mock_exit):
+        """App must refuse to start with default SECRET_KEY even in debug mode."""
+        mock_app = MagicMock()
+        mock_app.config = {"SECRET_KEY": CHANGE_ME_SECRET_KEY, "TESTING": False}
+        mock_app.debug = True
+        app_initializer = SupersetAppInitializer(mock_app)
+
+        app_initializer.check_secret_key()
+
+        mock_exit.assert_called_once_with(1)
+
+    @patch("superset.initialization.sys.exit")
+    @patch("superset.initialization.logger")
+    def test_default_secret_key_exits_in_testing_mode(self, mock_logger, mock_exit):
+        """App must refuse to start with default SECRET_KEY even in testing mode."""
+        mock_app = MagicMock()
+        mock_app.config = {"SECRET_KEY": CHANGE_ME_SECRET_KEY, "TESTING": True}
+        mock_app.debug = False
+        app_initializer = SupersetAppInitializer(mock_app)
+
+        app_initializer.check_secret_key()
+
+        mock_exit.assert_called_once_with(1)
+
+    @patch("superset.initialization.sys.exit")
+    @patch("superset.initialization.logger")
+    def test_custom_secret_key_does_not_exit(self, mock_logger, mock_exit):
+        """App should start normally with a custom SECRET_KEY."""
+        mock_app = MagicMock()
+        mock_app.config = {"SECRET_KEY": "a-real-secret-key-set-by-admin"}
+        app_initializer = SupersetAppInitializer(mock_app)
+
+        app_initializer.check_secret_key()
+
+        mock_exit.assert_not_called()
 
 
 class TestCreateAppRoot:
